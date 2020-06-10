@@ -1,10 +1,11 @@
 from PyQt5.QtWidgets import (QWidget, QMessageBox, QPushButton, QBoxLayout, QHBoxLayout, QApplication,
                              QLabel, QLineEdit, QGridLayout, QStackedWidget, QTabBar, QTextBrowser,
-                             QTabWidget, )
+                             QTabWidget, QFormLayout, )
 import sys
 from typing import List, Dict
 from collections import namedtuple
 from .storage import TabStorage
+from PyQt5.QtCore import Qt
 
 
 def run():
@@ -59,7 +60,7 @@ class FolderBar(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setMinimumSize(300, 400)
+        self.setMinimumSize(300, 600)
         self.label = QLabel("folder", self)
 
 
@@ -75,6 +76,7 @@ class TabContainer(QTabWidget):
         self.tabBar().setTabButton(0, QTabBar.LeftSide, None)
         if len(storage) == 0:
             self.new_tab()
+        self.tabCloseRequested.connect(self.on_tab_close)
 
     def new_tab(self):
         tab_key = self.storage.new_tab()
@@ -82,10 +84,13 @@ class TabContainer(QTabWidget):
         self.insertTab(len(self.storage) - 1, tab, "unnamed")
 
     def on_tab_clicked(self, x: int):
-        print(x)
         if x == len(self.storage):
             self.new_tab()
             self.setCurrentIndex(x - 1)
+
+    def on_tab_close(self, x: int):
+        if 0 < x < len(self.storage):
+            self.removeTab(x)
 
 
 class TabPage(QWidget):
@@ -94,12 +99,9 @@ class TabPage(QWidget):
         super().__init__()
         layout = QBoxLayout(QBoxLayout.TopToBottom)
         editor = Editor()
-        screen = Screen()
         layout.addWidget(editor)
-        layout.addWidget(screen)
         layout.setSpacing(10)
         self.setLayout(layout)
-        self.output = screen
         self.editor = editor
         self.tab_key = tab_key
 
@@ -110,31 +112,70 @@ class TabPage(QWidget):
         pass
 
 
+class RequestContentWidget(QWidget):
+
+    class Row(QGridLayout):
+
+        def __init__(self):
+            super().__init__()
+            btn_remove = QPushButton("-")
+            key_input = QLineEdit()
+            value_input = QLineEdit()
+            self.addWidget(btn_remove, 1, 1)
+            self.addWidget(key_input, 1, 2)
+            self.addWidget(value_input, 1, 4)
+
+    def __init__(self):
+        super().__init__()
+        self.request_layout = QFormLayout()
+        self.setLayout(self.request_layout)
+        self.add_row()
+
+    def add_row(self):
+        row = RequestContentWidget.Row()
+        self.request_layout.addRow(row)
+
+    def remove_row(self):
+        pass
+
+
+class RequestTab(QTabWidget):
+
+    def __init__(self):
+        super().__init__()
+        header_tab = RequestContentWidget()
+        body_tab = RequestContentWidget()
+        self.addTab(header_tab, "header")
+        self.addTab(body_tab, "body")
+
+
 class Editor(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setMinimumSize(400, 200)
-        editor_layout = QGridLayout()
+        editor_layout = QFormLayout()
         self.input_search = QLineEdit()
         self.input_search.setPlaceholderText("http://")
         self.input_search.setMinimumWidth(400)
         self.btn_send = QPushButton("send")
         self.btn_save = QPushButton("save")
-        editor_layout.addWidget(self.input_search, 1, 1)
-        editor_layout.addWidget(self.btn_send, 1, 5)
-        editor_layout.addWidget(self.btn_save, 1, 6)
+        editor_layout.addRow(self.input_search)
+
+        row = QHBoxLayout()
+        self.btn_send.setMaximumWidth(60)
+        self.btn_save.setMaximumWidth(60)
+        row.addWidget(self.btn_send)
+        row.addWidget(self.btn_save)
+        editor_layout.addRow(row)
+
+        self.request_tabbar = RequestTab()
+        editor_layout.addRow(self.request_tabbar)
+
+        self.response_screen = QTextBrowser()
+        editor_layout.addRow(self.response_screen)
+
         self.editor_layout = editor_layout
         self.setLayout(editor_layout)
         self.req_body_input = []
         self.req_header_input = []
-
-
-class Screen(QWidget):
-
-    def __init__(self):
-        super().__init__()
-        self.browser = QTextBrowser(self)
-        self.browser.setWindowTitle("result:")
-        self.browser.resize(600, 400)
 
