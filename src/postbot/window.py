@@ -6,6 +6,8 @@ from typing import List, Dict
 from collections import namedtuple
 from .storage import TabStorage
 from PyQt5.QtCore import Qt
+from PyQt5.sip import cast
+from json import dumps as json_encode, loads as json_decode
 
 
 def run():
@@ -114,39 +116,69 @@ class TabPage(QWidget):
 
 class RequestContentWidget(QWidget):
 
-    class Row(QGridLayout):
+    class Row(QHBoxLayout):
 
         def __init__(self):
             super().__init__()
             btn_remove = QPushButton("-")
             key_input = QLineEdit()
+            key_input.setMaximumWidth(120)
             value_input = QLineEdit()
-            self.addWidget(btn_remove, 1, 1)
-            self.addWidget(key_input, 1, 2)
-            self.addWidget(value_input, 1, 4)
+            self.addWidget(btn_remove)
+            self.btn_remove = btn_remove
+            self.addWidget(key_input)
+            self.addWidget(value_input)
 
     def __init__(self):
         super().__init__()
         self.request_layout = QFormLayout()
+        self.request_layout.setVerticalSpacing(5)
         self.setLayout(self.request_layout)
-        self.add_row()
+        self.add_plus_row()
+        for _ in range(0, 5):
+            self.add_row()
 
     def add_row(self):
+        """
+        add one row: "-"  input  input
+        :return: None
+        """
         row = RequestContentWidget.Row()
+        row.btn_remove.clicked.connect(lambda: self.on_btn_remove_click(row))
         self.request_layout.addRow(row)
 
-    def remove_row(self):
-        pass
+    def add_plus_row(self):
+        """add a row with a '+' button"""
+        row = QHBoxLayout()
+        btn_more = QPushButton("+")
+        btn_more.clicked.connect(self.add_row)
+        row.addWidget(btn_more)
+        self.request_layout.addRow(row)
+
+    def on_btn_remove_click(self, row):
+        self.request_layout.removeRow(row)
+
+    def get_contents(self):
+        contents = {}
+        for i in range(1, self.request_layout.rowCount()):
+            row = self.request_layout.itemAt(i)
+            k = row.layout().itemAt(1).widget().text().strip()
+            if k != '':
+                contents[k] = row.layout().itemAt(2).widget().text().strip()
+        return contents
 
 
 class RequestTab(QTabWidget):
 
     def __init__(self):
         super().__init__()
-        header_tab = RequestContentWidget()
-        body_tab = RequestContentWidget()
-        self.addTab(header_tab, "header")
-        self.addTab(body_tab, "body")
+        self.header_tab = RequestContentWidget()
+        self.body_tab = RequestContentWidget()
+        self.addTab(self.header_tab, "header")
+        self.addTab(self.body_tab, "body")
+
+    def add_header_row(self):
+        self.header_tab.add_row()
 
 
 class Editor(QWidget):
@@ -170,12 +202,13 @@ class Editor(QWidget):
 
         self.request_tabbar = RequestTab()
         editor_layout.addRow(self.request_tabbar)
+        self.btn_send.clicked.connect(lambda: self.response_screen.setText(json_encode(
+            [self.request_tabbar.header_tab.get_contents(),
+             self.request_tabbar.body_tab.get_contents()], indent=2)))
 
         self.response_screen = QTextBrowser()
         editor_layout.addRow(self.response_screen)
 
         self.editor_layout = editor_layout
         self.setLayout(editor_layout)
-        self.req_body_input = []
-        self.req_header_input = []
 
