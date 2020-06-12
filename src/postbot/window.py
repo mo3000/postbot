@@ -262,9 +262,7 @@ class Editor(QWidget):
         resp.finished.connect(lambda: self.__on_http_send_finished(resp))
 
     def __on_http_send_finished(self, resp):
-        mobj = self.btn_cancel.metaObject()
-        if self.btn_cancel.isSignalConnected(mobj.method(mobj.indexOfMethod('clicked()'))):
-            self.btn_cancel.clicked.disconnect()
+        self.__disconnect_btn_cancel()
         self.btn_send.setEnabled(True)
         self.response_screen.setText(bytes(resp.readAll()).decode('utf-8'))
 
@@ -272,6 +270,12 @@ class Editor(QWidget):
         if not resp.isFinished():
             resp.abort()
             self.btn_send.setEnabled(True)
+        self.__disconnect_btn_cancel()
+
+    def __disconnect_btn_cancel(self):
+        mobj = self.btn_cancel.metaObject()
+        if self.btn_cancel.isSignalConnected(mobj.method(mobj.indexOfMethod('clicked()'))):
+            self.btn_cancel.clicked.disconnect()
 
 
 
