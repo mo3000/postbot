@@ -1,12 +1,12 @@
 from PyQt5.QtWidgets import (QWidget, QMessageBox, QPushButton, QBoxLayout, QHBoxLayout, QApplication,
                              QLabel, QLineEdit, QGridLayout, QStackedWidget, QTabBar, QTextBrowser,
-                             QTabWidget, QFormLayout, )
+                             QTabWidget, QFormLayout, QRadioButton, QButtonGroup, )
 import sys
 from typing import List, Dict
 from collections import namedtuple
 from .storage import TabStorage
-from PyQt5.QtCore import Qt
-from PyQt5.sip import cast
+from PyQt5.QtCore import QUrl, QByteArray
+from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QHttpMultiPart, QHttpPart
 from json import dumps as json_encode, loads as json_decode
 
 
@@ -41,6 +41,7 @@ class Main(QWidget):
         layout.addWidget(FolderBar())
         self.tab_store = TabStorage()
         self.tab_container = TabContainer(self.tab_store)
+        self.tab_container.setCurrentIndex(0)
         layout.addWidget(self.tab_container)
         self.setLayout(layout)
 
@@ -188,10 +189,13 @@ class Editor(QWidget):
         editor_layout = QFormLayout()
         self.input_search = QLineEdit()
         self.input_search.setPlaceholderText("http://")
+        self.input_search.setText('http://localhost:8000/test/index')
         self.input_search.setMinimumWidth(400)
         self.btn_send = QPushButton("send")
         self.btn_save = QPushButton("save")
         editor_layout.addRow(self.input_search)
+        self.http = QNetworkAccessManager()
+        self.http.setTransferTimeout(10000)
 
         row = QHBoxLayout()
         self.btn_send.setMaximumWidth(60)
@@ -200,15 +204,60 @@ class Editor(QWidget):
         row.addWidget(self.btn_save)
         editor_layout.addRow(row)
 
+        self.group_http_type = QButtonGroup()
+        btn_get = QRadioButton("GET")
+        btn_get.setChecked(True)
+        btn_post = QRadioButton("POST")
+        self.group_http_type.addButton(btn_get)
+        self.group_http_type.addButton(btn_post)
+        row = QHBoxLayout()
+        row.addWidget(btn_get)
+        row.addWidget(btn_post)
+        editor_layout.addRow(row)
+
         self.request_tabbar = RequestTab()
         editor_layout.addRow(self.request_tabbar)
-        self.btn_send.clicked.connect(lambda: self.response_screen.setText(json_encode(
-            [self.request_tabbar.header_tab.get_contents(),
-             self.request_tabbar.body_tab.get_contents()], indent=2)))
+        self.btn_send.clicked.connect(self.__set_response_text)
 
         self.response_screen = QTextBrowser()
         editor_layout.addRow(self.response_screen)
 
         self.editor_layout = editor_layout
         self.setLayout(editor_layout)
+
+    def __set_response_text(self):
+        request_content = {
+            'header': self.request_tabbar.header_tab.get_contents(),
+            'body': self.request_tabbar.body_tab.get_contents(),
+            'type': self.group_http_type.checkedButton().text(),
+            'url': self.input_search.text().strip(),
+        }
+
+        if request_content['url'] == '':
+            alert('fbi warning ⚠️', 'url is empty!')
+            return
+
+        req = QNetworkRequest(QUrl(request_content['url']))
+        for header_key in request_content['header']:
+            req.setRawHeader(header_key.encode('utf-8'), request_content['header'][header_key].encode('utf-8'))
+
+        if request_content['type'] == 'GET':
+            resp = self.http.get(req)
+        elif request_content['type'] == 'POST':
+            data = QHttpMultiPart(QHttpMultiPart.FormDataType)
+            for body_key in request_content['body']:
+                part = QHttpPart()
+                part.setBody(request_content['body'][body_key].encode('utf-8'))
+                part.setHeader(QNetworkRequest.ContentDispositionHeader, f'form-data; name="{body_key}"'.encode('utf-8'))
+                data.append(part)
+            resp = self.http.post(req, data)
+        else:
+            alert('', 'req is not set, type: ' + request_content['type'])
+            return
+
+        resp.finished.connect(lambda: self.response_screen.setText(bytes(resp.readAll()).decode('utf-8')))
+
+
+
+
 
