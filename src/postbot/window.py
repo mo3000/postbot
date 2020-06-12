@@ -5,7 +5,7 @@ import sys
 from typing import List, Dict
 from collections import namedtuple
 from .storage import TabStorage
-from PyQt5.QtCore import QUrl, QByteArray
+from PyQt5.QtCore import QUrl, QMetaMethod
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QHttpMultiPart, QHttpPart
 from json import dumps as json_encode, loads as json_decode
 
@@ -20,9 +20,8 @@ def run():
         pass
 
 
-def alert(title: str, text: str):
+def alert(text: str):
     box = QMessageBox()
-    box.setWindowTitle(title)
     box.setText(text)
     box.show()
     box.exec_()
@@ -192,6 +191,7 @@ class Editor(QWidget):
         self.input_search.setText('http://localhost:8000/test/index')
         self.input_search.setMinimumWidth(400)
         self.btn_send = QPushButton("send")
+        self.btn_cancel = QPushButton("cancel")
         self.btn_save = QPushButton("save")
         editor_layout.addRow(self.input_search)
         self.http = QNetworkAccessManager()
@@ -199,8 +199,10 @@ class Editor(QWidget):
 
         row = QHBoxLayout()
         self.btn_send.setMaximumWidth(60)
+        self.btn_cancel.setMaximumWidth(60)
         self.btn_save.setMaximumWidth(60)
         row.addWidget(self.btn_send)
+        row.addWidget(self.btn_cancel)
         row.addWidget(self.btn_save)
         editor_layout.addRow(row)
 
@@ -226,6 +228,7 @@ class Editor(QWidget):
         self.setLayout(editor_layout)
 
     def __set_response_text(self):
+        self.btn_send.setEnabled(False)
         request_content = {
             'header': self.request_tabbar.header_tab.get_contents(),
             'body': self.request_tabbar.body_tab.get_contents(),
@@ -234,7 +237,7 @@ class Editor(QWidget):
         }
 
         if request_content['url'] == '':
-            alert('fbi warning ⚠️', 'url is empty!')
+            alert('url is empty!')
             return
 
         req = QNetworkRequest(QUrl(request_content['url']))
@@ -252,11 +255,23 @@ class Editor(QWidget):
                 data.append(part)
             resp = self.http.post(req, data)
         else:
-            alert('', 'req is not set, type: ' + request_content['type'])
+            alert('req is not set, type: ' + request_content['type'])
             return
 
-        resp.finished.connect(lambda: self.response_screen.setText(bytes(resp.readAll()).decode('utf-8')))
+        self.btn_cancel.clicked.connect(lambda: self.__on_btn_cancel_clicked(resp))
+        resp.finished.connect(lambda: self.__on_http_send_finished(resp))
 
+    def __on_http_send_finished(self, resp):
+        mobj = self.btn_cancel.metaObject()
+        if self.btn_cancel.isSignalConnected(mobj.method(mobj.indexOfMethod('clicked()'))):
+            self.btn_cancel.clicked.disconnect()
+        self.btn_send.setEnabled(True)
+        self.response_screen.setText(bytes(resp.readAll()).decode('utf-8'))
+
+    def __on_btn_cancel_clicked(self, resp):
+        if not resp.isFinished():
+            resp.abort()
+            self.btn_send.setEnabled(True)
 
 
 
