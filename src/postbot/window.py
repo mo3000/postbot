@@ -107,12 +107,6 @@ class TabPage(QWidget):
         self.editor = editor
         self.tab_key = tab_key
 
-    def set_output(self, text: str):
-        self.output.browser.setText(text)
-
-    def get_request(self):
-        pass
-
 
 class RequestContentWidget(QWidget):
 
@@ -199,7 +193,7 @@ class Editor(QWidget):
 
         row = QHBoxLayout()
         self.btn_send.setMaximumWidth(60)
-        self.btn_cancel.setMaximumWidth(60)
+        self.btn_cancel.setMaximumWidth(80)
         self.btn_save.setMaximumWidth(60)
         row.addWidget(self.btn_send)
         row.addWidget(self.btn_cancel)
@@ -241,19 +235,21 @@ class Editor(QWidget):
             return
 
         req = QNetworkRequest(QUrl(request_content['url']))
-        for header_key in request_content['header']:
-            req.setRawHeader(header_key.encode('utf-8'), request_content['header'][header_key].encode('utf-8'))
+        for k, v in request_content['header'].items():
+            req.setRawHeader(k.encode('utf-8'), v.encode())
 
         if request_content['type'] == 'GET':
             resp = self.http.get(req)
+            print('get')
         elif request_content['type'] == 'POST':
-            data = QHttpMultiPart(QHttpMultiPart.FormDataType)
-            for body_key in request_content['body']:
-                part = QHttpPart()
-                part.setBody(request_content['body'][body_key].encode('utf-8'))
-                part.setHeader(QNetworkRequest.ContentDispositionHeader, f'form-data; name="{body_key}"'.encode('utf-8'))
-                data.append(part)
-            resp = self.http.post(req, data)
+            req.setHeader(QNetworkRequest.ContentTypeHeader, 'application/x-www-form-urlencoded')
+            body = []
+            for k, v in request_content['body'].items():
+                # part = QHttpPart()
+                # part.setHeader(QNetworkRequest.ContentDispositionHeader, f'form-data; name="{k}"')
+                # part.setBody(v.encode('utf-8'))
+                body.append(f"{k}={v}")
+            resp = self.http.post(req, '&'.join(body).encode())
         else:
             alert('req is not set, type: ' + request_content['type'])
             return
@@ -264,7 +260,7 @@ class Editor(QWidget):
     def __on_http_send_finished(self, resp):
         self.__disconnect_btn_cancel()
         self.btn_send.setEnabled(True)
-        self.response_screen.setText(bytes(resp.readAll()).decode('utf-8'))
+        self.response_screen.setText(bytes(resp.readAll()).decode())
 
     def __on_btn_cancel_clicked(self, resp):
         if not resp.isFinished():
