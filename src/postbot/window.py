@@ -7,7 +7,7 @@ import sys
 from typing import List, Dict, Union
 from .storage import TabStorage
 from PyQt5.QtCore import QUrl, Qt, QEvent
-from PyQt5.Qt import QStandardItemModel, QStandardItem, QPoint, QCursor
+from PyQt5.Qt import QStandardItemModel, QStandardItem, QPoint, QCursor, QIcon
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QHttpMultiPart, QHttpPart
 from json import dumps as json_encode, loads as json_decode
 
@@ -29,15 +29,34 @@ def alert(text: str):
     box.exec_()
 
 
+class TreeNode(QStandardItem):
+
+    def __init__(self, *args, **kwargs):
+        if 'is_dir' in kwargs:
+            self.__is_dir = kwargs['is_dir']
+            del kwargs['is_dir']
+        else:
+            self.__is_dir = True
+        super().__init__(*args, **kwargs)
+
+    def is_dir(self):
+        return self.__is_dir
+
+
 class FolderTreeView(QTreeView):
 
     def __init__(self):
         super().__init__()
         self.setSelectionMode(QTreeView.SelectionMode.ExtendedSelection)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.tree_model = QStandardItemModel()
-        self.setModel(self.tree_model)
+        self.setModel(QStandardItemModel())
         self.setHeaderHidden(True)
+        self.setDragDropMode(self.InternalMove)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+        self.folder_icon = QIcon(__file__ + '/../../resource/icons8-folder.svg')
+        self.file_icon = QIcon(__file__ + '/../../resource/icons8-file.svg')
 
     def mouseDoubleClickEvent(self, e: QtGui.QMouseEvent) -> None:
         item = self.indexAt(e.pos())
@@ -46,7 +65,16 @@ class FolderTreeView(QTreeView):
         #     super().mouseDoubleClickEvent(e)
 
     def add_root_item(self, item):
-        self.tree_model.invisibleRootItem().appendRow(item)
+        self.model().invisibleRootItem().appendRow(item)
+
+    def dropEvent(self, e: QtGui.QDropEvent) -> None:
+        selected_indexes = self.selectedIndexes()
+        super().dropEvent(e)
+        if e.isAccepted():
+            self.expand(self.indexAt(e.pos()))
+
+    def get_node_by_pos(self, pos: QPoint) -> TreeNode:
+        return self.model().itemFromIndex(self.indexAt(pos))
 
 
 class Main(QWidget):
@@ -68,20 +96,6 @@ class Main(QWidget):
         pass
 
 
-class TreeNode(QStandardItem):
-
-    def __init__(self, *args, **kwargs):
-        if 'is_dir' in kwargs:
-            self.__is_dir = kwargs['is_dir']
-            del kwargs['is_dir']
-        else:
-            self.__is_dir = True
-        super().__init__(*args, **kwargs)
-
-    def is_dir(self):
-        return self.__is_dir
-
-
 class FolderBar(QWidget):
 
     def __init__(self):
@@ -97,9 +111,14 @@ class FolderBar(QWidget):
         self.tree_view.customContextMenuRequested.connect(self.show_context_menu)
         self.__clicked_item = None
 
-    @staticmethod
-    def add_item(parent: QStandardItem, name: str, **kwargs) -> TreeNode:
+    def add_item(self, parent: QStandardItem, name: str, **kwargs) -> TreeNode:
         node = TreeNode(name, **kwargs)
+        if 'is_dir' in kwargs and kwargs['is_dir'] is False:
+            node.setDropEnabled(False)
+            node.setIcon(self.tree_view.file_icon)
+        else:
+            node.setIcon(self.tree_view.folder_icon)
+        node.setText(name)
         parent.appendRow(node)
         return node
 
@@ -113,7 +132,7 @@ class FolderBar(QWidget):
         self.tree_view.expandAll()
 
     def show_context_menu(self, pos: QPoint):
-        self.__clicked_item = self.get_model_item_by_pos(pos)
+        self.__clicked_item = self.tree_view.get_node_by_pos(pos)
         menu = QMenu(self)
         if self.__clicked_item is None or self.__clicked_item.is_dir():
             action = menu.addAction('add folder')
@@ -124,11 +143,6 @@ class FolderBar(QWidget):
             action = menu.addAction('delete')
             action.triggered.connect(self.__context_action_delete)
         menu.exec_(QCursor.pos())
-
-    def get_model_item_by_pos(self, pos=None) -> Union[TreeNode, None]:
-        if pos is None:
-            pos = QCursor.pos()
-        return self.tree_view.tree_model.itemFromIndex(self.tree_view.indexAt(pos))
 
     @staticmethod
     def new_folder_node(text: str) -> TreeNode:

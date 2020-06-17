@@ -7,14 +7,13 @@ class Db:
     def __init__(self):
         db = QSqlDatabase.addDatabase('QSQLITE')
         db.setDatabaseName("./postbot.db")
+        db.open()
         self.db = db
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.db.close()
 
     def __enter__(self):
-        if not self.db.isOpen():
-            self.db.open()
         return self.db
 
 
