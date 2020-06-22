@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (QWidget, QMessageBox, QPushButton, QBoxLayout, QHBo
                              QFileIconProvider, QMainWindow, QInputDialog, )
 import sys
 from typing import List, Dict, Union
-from .storage import TabStorage
+from .storage import TabStorage, Db
 from PyQt5.QtCore import QUrl, Qt, QEvent
 from PyQt5.Qt import QStandardItemModel, QStandardItem, QPoint, QCursor, QIcon
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QHttpMultiPart, QHttpPart
@@ -176,6 +176,7 @@ class TabContainer(QTabWidget):
     def __init__(self, storage: TabStorage):
         super().__init__()
         self.storage = storage
+        self.db = Db()
         btn_add_tab = QWidget()
         self.addTab(btn_add_tab, "+")
         self.tabBarClicked.connect(self.on_tab_clicked)
@@ -185,10 +186,15 @@ class TabContainer(QTabWidget):
             self.new_tab()
         self.tabCloseRequested.connect(self.on_tab_close)
 
-    def new_tab(self):
-        tab_key = self.storage.new_tab()
-        tab = TabPage(tab_key)
-        self.insertTab(len(self.storage) - 1, tab, "unnamed")
+    def new_tab(self, tab_data=None):
+        if tab_data is None:
+            tab_key = self.storage.new_tab()
+            tab = TabPage(tab_key)
+            self.insertTab(len(self.storage) - 1, tab, "unnamed")
+        else:
+            tab = TabPage(tab_data['id'])
+            tab.set_request_data(tab_data)
+            self.insertTab(len(self.storage) - 1, tab, tab_data['name'])
 
     def on_tab_clicked(self, x: int):
         if x == len(self.storage):
@@ -196,8 +202,17 @@ class TabContainer(QTabWidget):
             self.setCurrentIndex(x - 1)
 
     def on_tab_close(self, x: int):
-        if 0 < x < len(self.storage):
-            self.removeTab(x)
+        self.storage.remove(self.widget(x).tab_key)
+        self.removeTab(x)
+
+    def load_all_tab(self):
+        tabs = self.db.load_all_tab()
+        for tab in tabs:
+            self.new_tab(tab)
+
+    def load_tab(self, key: str):
+        tab = self.db.load_tab(key)
+        self.new_tab(tab)
 
 
 class TabPage(QWidget):
@@ -211,6 +226,9 @@ class TabPage(QWidget):
         self.setLayout(layout)
         self.editor = editor
         self.tab_key = tab_key
+
+    def set_request_data(self, data):
+        self.editor.set_request_data(data)
 
 
 class RequestContentWidget(QWidget):
@@ -236,6 +254,16 @@ class RequestContentWidget(QWidget):
         self.add_plus_row()
         for _ in range(0, 5):
             self.add_row()
+
+    def set_content(self, data):
+        """
+        data: [{id, key, value}]
+        """
+        while self.request_layout.rowCount() - 1 < len(data):
+            self.add_row()
+        for i in range(0, len(data)):
+            self.request_layout.itemAt(i + 1, 1).setText(data[i]['key'])
+            self.request_layout.itemAt(i + 1, 2).setText(data[i]['value'])
 
     def add_row(self):
         """
@@ -278,6 +306,17 @@ class RequestTab(QTabWidget):
 
     def add_header_row(self):
         self.header_tab.add_row()
+
+    def set_data(self, data):
+        """
+        data: [{
+            ...
+            'body': [{'id', 'key', 'value'}]
+            'header': [{'id', 'key', 'value'}]
+        }]
+        """
+        self.header_tab.set_content(data['header'])
+        self.body_tab.set_content(data['body'])
 
 
 class Editor(QWidget):
@@ -325,6 +364,10 @@ class Editor(QWidget):
 
         self.editor_layout = editor_layout
         self.setLayout(editor_layout)
+
+    def set_request_data(self, data):
+        """ set request data (data load from db) """
+        self.request_tabbar.set_data(data)
 
     def __set_response_text(self):
         self.btn_send.setEnabled(False)
