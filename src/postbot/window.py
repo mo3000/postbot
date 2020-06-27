@@ -1,11 +1,13 @@
+from PyQt5 import QtGui
 from PyQt5.QtWidgets import (QWidget, QMessageBox, QPushButton, QBoxLayout, QHBoxLayout, QApplication,
                              QLabel, QLineEdit, QGridLayout, QStackedWidget, QTabBar, QTextBrowser,
-                             QTabWidget, QFormLayout, QRadioButton, QButtonGroup, )
+                             QTabWidget, QFormLayout, QRadioButton, QButtonGroup, QTreeView, QMenu,
+                             QFileIconProvider, QMainWindow, QInputDialog, )
 import sys
-from typing import List, Dict
-from collections import namedtuple
-from .storage import TabStorage
-from PyQt5.QtCore import QUrl, QMetaMethod
+from typing import List, Dict, Union
+from .storage import TabStorage, Db
+from PyQt5.QtCore import QUrl, Qt, QEvent
+from PyQt5.Qt import QStandardItemModel, QStandardItem, QPoint, QCursor, QIcon
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QHttpMultiPart, QHttpPart
 from json import dumps as json_encode, loads as json_decode
 
@@ -27,7 +29,52 @@ def alert(text: str):
     box.exec_()
 
 
-KeyValue = namedtuple("KeyValue", ['k', 'v'])
+class TreeNode(QStandardItem):
+
+    def __init__(self, *args, **kwargs):
+        if 'is_dir' in kwargs:
+            self.__is_dir = kwargs['is_dir']
+            del kwargs['is_dir']
+        else:
+            self.__is_dir = True
+        super().__init__(*args, **kwargs)
+
+    def is_dir(self):
+        return self.__is_dir
+
+
+class FolderTreeView(QTreeView):
+
+    def __init__(self):
+        super().__init__()
+        self.setSelectionMode(QTreeView.SelectionMode.ExtendedSelection)
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.setModel(QStandardItemModel())
+        self.setHeaderHidden(True)
+        self.setDragDropMode(self.InternalMove)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+        self.folder_icon = QIcon(__file__ + '/../../resource/icons8-folder.svg')
+        self.file_icon = QIcon(__file__ + '/../../resource/icons8-file.svg')
+
+    def mouseDoubleClickEvent(self, e: QtGui.QMouseEvent) -> None:
+        item = self.indexAt(e.pos())
+        print(item)
+        # if item is None or self.indexWidget(item).is_dir() is True:
+        #     super().mouseDoubleClickEvent(e)
+
+    def add_root_item(self, item):
+        self.model().invisibleRootItem().appendRow(item)
+
+    def dropEvent(self, e: QtGui.QDropEvent) -> None:
+        selected_indexes = self.selectedIndexes()
+        super().dropEvent(e)
+        if e.isAccepted():
+            self.expand(self.indexAt(e.pos()))
+
+    def get_node_by_pos(self, pos: QPoint) -> TreeNode:
+        return self.model().itemFromIndex(self.indexAt(pos))
 
 
 class Main(QWidget):
@@ -43,16 +90,7 @@ class Main(QWidget):
         self.tab_container.setCurrentIndex(0)
         layout.addWidget(self.tab_container)
         self.setLayout(layout)
-
-    def fetch_response(self, key: str):
-        """get content from param editor, send http request, write response to "screen\""""
-        self.output.browser.setText("输出啦")
-        request = self.get_editor_content(key)
-        if request['type'] == 'get':
-            pass
-        elif request['type'] == 'post':
-            pass
-        # todo process request body
+        # self.icon_folder = QFileIconProvider().icon()
 
     def get_editor_content(self, key: str) -> Dict:
         pass
@@ -63,7 +101,74 @@ class FolderBar(QWidget):
     def __init__(self):
         super().__init__()
         self.setMinimumSize(300, 600)
-        self.label = QLabel("folder", self)
+        layout = QBoxLayout(QBoxLayout.TopToBottom)
+        self.tree_view = FolderTreeView()
+        layout.addWidget(self.tree_view)
+        self.load_from_cache()
+        self.setLayout(layout)
+        self.tree_view.clicked.connect(self.__on_treenode_clicked)
+        # selection mode: SingleSelection, ContiguousSelection, ExtendedSelection, MultiSelection, NoSelection
+        self.tree_view.customContextMenuRequested.connect(self.show_context_menu)
+        self.__clicked_item = None
+
+    def add_item(self, parent: QStandardItem, name: str, **kwargs) -> TreeNode:
+        node = TreeNode(name, **kwargs)
+        if 'is_dir' in kwargs and kwargs['is_dir'] is False:
+            node.setDropEnabled(False)
+            node.setIcon(self.tree_view.file_icon)
+        else:
+            node.setIcon(self.tree_view.folder_icon)
+        node.setText(name)
+        parent.appendRow(node)
+        return node
+
+    def load_from_cache(self):
+        """ load saved data (from database)"""
+        p1 = TreeNode("America")
+        self.add_item(p1, "1111111")
+        self.add_item(p1, "2222222")
+        self.add_item(p1, "3333333", is_dir=False)
+        self.tree_view.add_root_item(p1)
+        self.tree_view.expandAll()
+
+    def show_context_menu(self, pos: QPoint):
+        self.__clicked_item = self.tree_view.get_node_by_pos(pos)
+        menu = QMenu(self)
+        if self.__clicked_item is None or self.__clicked_item.is_dir():
+            action = menu.addAction('add folder')
+            action.triggered.connect(self.__context_action_add_folder)
+        if self.__clicked_item is not None:
+            action = menu.addAction('rename')
+            action.triggered.connect(self.__context_action_rename)
+            action = menu.addAction('delete')
+            action.triggered.connect(self.__context_action_delete)
+        menu.exec_(QCursor.pos())
+
+    @staticmethod
+    def new_folder_node(text: str) -> TreeNode:
+        return TreeNode(text)
+
+    def __on_treenode_clicked(self, node: TreeNode):
+        pass
+
+    def __context_action_delete(self):
+        print('delete')
+
+    def __context_action_add_folder(self):
+        name, ok = QInputDialog.getText(self, '⌨️', 'please enter a name')
+        if ok:
+            if name == '':
+                alert("name is empty! ")
+                return
+            node = self.new_folder_node(name)
+            if self.__clicked_item is None:
+                self.tree_view.add_root_item(node)
+            elif self.__clicked_item.is_dir():
+                self.__clicked_item.appendRow(node)
+                self.tree_view.expand(self.__clicked_item.index())
+
+    def __context_action_rename(self):
+        print('rename')
 
 
 class TabContainer(QTabWidget):
@@ -71,19 +176,27 @@ class TabContainer(QTabWidget):
     def __init__(self, storage: TabStorage):
         super().__init__()
         self.storage = storage
+        self.db = Db()
         btn_add_tab = QWidget()
         self.addTab(btn_add_tab, "+")
         self.tabBarClicked.connect(self.on_tab_clicked)
         self.setTabsClosable(True)
         self.tabBar().setTabButton(0, QTabBar.LeftSide, None)
+        self.load_all_tab()
         if len(storage) == 0:
             self.new_tab()
         self.tabCloseRequested.connect(self.on_tab_close)
 
-    def new_tab(self):
-        tab_key = self.storage.new_tab()
-        tab = TabPage(tab_key)
-        self.insertTab(len(self.storage) - 1, tab, "unnamed")
+    def new_tab(self, tab_data=None):
+        if tab_data is None:
+            tab_key = self.storage.new_tab()
+            tab = TabPage(tab_key)
+            self.insertTab(len(self.storage) - 1, tab, "unnamed")
+        else:
+            tab = TabPage(tab_data['id'])
+            tab.set_request_data(tab_data)
+            self.storage.add(tab_data['id'])
+            self.insertTab(len(self.storage) - 1, tab, tab_data['name'])
 
     def on_tab_clicked(self, x: int):
         if x == len(self.storage):
@@ -91,8 +204,17 @@ class TabContainer(QTabWidget):
             self.setCurrentIndex(x - 1)
 
     def on_tab_close(self, x: int):
-        if 0 < x < len(self.storage):
-            self.removeTab(x)
+        self.storage.remove(self.widget(x).tab_key)
+        self.removeTab(x)
+
+    def load_all_tab(self):
+        tabs = self.db.load_opened_tab()
+        for tab in tabs:
+            self.new_tab(tab)
+
+    def load_tab(self, key: str):
+        tab = self.db.load_tab(key)
+        self.new_tab(tab)
 
 
 class TabPage(QWidget):
@@ -106,6 +228,12 @@ class TabPage(QWidget):
         self.setLayout(layout)
         self.editor = editor
         self.tab_key = tab_key
+
+    def set_request_data(self, data):
+        self.editor.input_search.setText(data['url'])
+        btnid = 1 if data['request_type'] == 'get' else 2
+        self.editor.group_http_type.button(btnid).setChecked(True)
+        self.editor.set_request_data(data)
 
 
 class RequestContentWidget(QWidget):
@@ -131,6 +259,16 @@ class RequestContentWidget(QWidget):
         self.add_plus_row()
         for _ in range(0, 5):
             self.add_row()
+
+    def set_content(self, data):
+        """
+        data: [{id, key, value}]
+        """
+        while self.request_layout.rowCount() - 1 < len(data):
+            self.add_row()
+        for i in range(0, len(data)):
+            self.request_layout.itemAt(i + 1, 1).setText(data[i]['key'])
+            self.request_layout.itemAt(i + 1, 2).setText(data[i]['value'])
 
     def add_row(self):
         """
@@ -174,6 +312,17 @@ class RequestTab(QTabWidget):
     def add_header_row(self):
         self.header_tab.add_row()
 
+    def set_data(self, data):
+        """
+        data: [{
+            ...
+            'body': [{'id', 'key', 'value'}]
+            'header': [{'id', 'key', 'value'}]
+        }]
+        """
+        self.header_tab.set_content(data['header'])
+        self.body_tab.set_content(data['body'])
+
 
 class Editor(QWidget):
 
@@ -204,8 +353,8 @@ class Editor(QWidget):
         btn_get = QRadioButton("GET")
         btn_get.setChecked(True)
         btn_post = QRadioButton("POST")
-        self.group_http_type.addButton(btn_get)
-        self.group_http_type.addButton(btn_post)
+        self.group_http_type.addButton(btn_get, 1)
+        self.group_http_type.addButton(btn_post, 2)
         row = QHBoxLayout()
         row.addWidget(btn_get)
         row.addWidget(btn_post)
@@ -220,6 +369,10 @@ class Editor(QWidget):
 
         self.editor_layout = editor_layout
         self.setLayout(editor_layout)
+
+    def set_request_data(self, data):
+        """ set request data (data load from db) """
+        self.request_tabbar.set_data(data)
 
     def __set_response_text(self):
         self.btn_send.setEnabled(False)
@@ -240,7 +393,6 @@ class Editor(QWidget):
 
         if request_content['type'] == 'GET':
             resp = self.http.get(req)
-            print('get')
         elif request_content['type'] == 'POST':
             req.setHeader(QNetworkRequest.ContentTypeHeader, 'application/x-www-form-urlencoded')
             body = []

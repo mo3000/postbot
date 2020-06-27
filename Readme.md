@@ -1,4 +1,6 @@
 A pyqt toy project trying to implement Postman.
 ---------
 
-### current state: working on basic ui
+Some icon is downloaded from https://icons8.com
+
+### current status: working on basic ui
