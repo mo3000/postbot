@@ -27,6 +27,12 @@ class Db:
             )
             """)
             self.db.exec("""
+            create table opened_tabs(
+              tabid char(36) not null,
+              `index` integer not null
+            )
+            """)
+            self.db.exec("""
             create table tab_header(
                 `id` integer primary key autoincrement ,
                 tabsid varchar(36) ,
@@ -92,14 +98,44 @@ class Db:
     def save_tab_body(self, key, bodys):
         self.__save_tab(key, 'body', bodys)
 
-    def load_all_tab(self):
+    def save_tab_content(self, key, content):
+        query = QSqlQuery()
+        query.prepare(f'select * from tabs where id=:id')
+        query.bindValue(':id', key)
+        if query.first():
+            query = QSqlQuery()
+            query.prepare(f'update tabs set name=:name, request_type=:type, url=:url where id=:key')
+            query.bindValue(':url', content['url'])
+            query.bindValue(':type', content['request_type'])
+            query.bindValue(':name', content['name'])
+            query.bindValue(':key', key)
+            query.exec()
+        else:
+            query = QSqlQuery()
+            query.prepare(f'insert into tabs (`id`, name, request_type, url) values(:key, :name, :type, :url)')
+            query.bindValue(':key', key)
+            query.bindValue(':name', content['name'])
+            query.bindValue(':type', content['request_type'])
+            query.bindValue(':url', content['url'])
+            query.exec()
+        self.save_tab_header(key, content['header'])
+        self.save_tab_body(key, content['body'])
+
+    def load_opened_tab(self):
         tabs = []
-        query = self.db.exec("select * from tabs")
+        query = self.db.exec("select * from opened_tabs order by `index`")
         while query.next():
+            tabs.append(query.value('tabid'))
+        if len(tabs) == 0:
+            return tabs
+        query = self.db.exec('select * from tabs where `id` in ({})'.format(','.join(["'" + s + "'" for s in tabs])))
+        tabs = []
+        while query.next:
             tabs.append({
-                'id': query.value('id'),
                 'name': query.value('name'),
                 'request_type': query.value('request_type'),
+                'id': query.value('id'),
+                'url': query.value('url'),
             })
         for tab in tabs:
             headers = []
@@ -159,7 +195,7 @@ class Db:
 class TabStorage:
     """tab data helper"""
     def __init__(self):
-        self.data = {}
+        self.data = set()
         self.load()
 
     def load(self) -> None:
@@ -168,11 +204,14 @@ class TabStorage:
 
     def new_tab(self) -> str:
         uuid = uuid1()
-        self.data[uuid] = {}
+        self.data.add(uuid)
         return str(uuid)
 
+    def add(self, key):
+        self.data.add(key)
+
     def remove(self, key: str):
-        del self.data[key]
+        self.data.remove(key)
 
     def __len__(self):
         return len(self.data)

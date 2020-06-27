@@ -182,6 +182,7 @@ class TabContainer(QTabWidget):
         self.tabBarClicked.connect(self.on_tab_clicked)
         self.setTabsClosable(True)
         self.tabBar().setTabButton(0, QTabBar.LeftSide, None)
+        self.load_all_tab()
         if len(storage) == 0:
             self.new_tab()
         self.tabCloseRequested.connect(self.on_tab_close)
@@ -194,6 +195,7 @@ class TabContainer(QTabWidget):
         else:
             tab = TabPage(tab_data['id'])
             tab.set_request_data(tab_data)
+            self.storage.add(tab_data['id'])
             self.insertTab(len(self.storage) - 1, tab, tab_data['name'])
 
     def on_tab_clicked(self, x: int):
@@ -206,7 +208,7 @@ class TabContainer(QTabWidget):
         self.removeTab(x)
 
     def load_all_tab(self):
-        tabs = self.db.load_all_tab()
+        tabs = self.db.load_opened_tab()
         for tab in tabs:
             self.new_tab(tab)
 
@@ -228,6 +230,9 @@ class TabPage(QWidget):
         self.tab_key = tab_key
 
     def set_request_data(self, data):
+        self.editor.input_search.setText(data['url'])
+        btnid = 1 if data['request_type'] == 'get' else 2
+        self.editor.group_http_type.button(btnid).setChecked(True)
         self.editor.set_request_data(data)
 
 
@@ -348,8 +353,8 @@ class Editor(QWidget):
         btn_get = QRadioButton("GET")
         btn_get.setChecked(True)
         btn_post = QRadioButton("POST")
-        self.group_http_type.addButton(btn_get)
-        self.group_http_type.addButton(btn_post)
+        self.group_http_type.addButton(btn_get, 1)
+        self.group_http_type.addButton(btn_post, 2)
         row = QHBoxLayout()
         row.addWidget(btn_get)
         row.addWidget(btn_post)
